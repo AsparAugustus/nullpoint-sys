@@ -325,7 +325,7 @@ button{ font-family:inherit; }
             </p>
             <button id="continueBtn" class="hud-button" type="button" hidden>Continue</button>
             <a id="saveRecBtn" class="hud-button" hidden download="reaction.webm">Save Reaction</a>
-            <button id="replayBtn" class="hud-button" type="button" hidden>Run Again</button>
+            <button id="replayBtn" class="hud-button" type="button" hidden>Finish</button>
           </div>
         </div>
       </div>
@@ -423,7 +423,14 @@ button{ font-family:inherit; }
   var recordedChunks = [];
   var camTimerInterval = null;
   var camGeneration = 0;
+  var recordingUnsaved = false;
   var secConfirmIndex = 0;
+
+  window.addEventListener('beforeunload', function(e){
+    if (!recordingUnsaved) return;
+    e.preventDefault();
+    e.returnValue = '';
+  });
 
   function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
 
@@ -743,6 +750,7 @@ button{ font-family:inherit; }
       }
       mediaRecorder.ondataavailable = function(e){ if (e.data && e.data.size > 0) recordedChunks.push(e.data); };
       mediaRecorder.start();
+      recordingUnsaved = true;
       var camStartTime = Date.now();
       camTimerInterval = setInterval(function(){
         var s = Math.floor((Date.now() - camStartTime) / 1000);
@@ -752,6 +760,7 @@ button{ font-family:inherit; }
   }
 
   function stopReactionCapture(offerDownload){
+    recordingUnsaved = false;
     camGeneration++;
     if (camTimerInterval){ clearInterval(camTimerInterval); camTimerInterval = null; }
     if (saveRecBtn.href){ URL.revokeObjectURL(saveRecBtn.href); saveRecBtn.removeAttribute('href'); }
@@ -969,30 +978,8 @@ button{ font-family:inherit; }
   replayBtn.addEventListener('click', function(){
     if (busy) return;
     clickSound();
-    stopReactionCapture(false);
-    droneStop(true);
-    dataScrollTarget = 0;
-    particles.length = 0;
-    introLog.innerHTML = '';
-    statusRight.textContent = 'CHANNEL STATUS: UNVERIFIED';
-    bootScene.classList.remove('security-active');
-    secOverlay.hidden = true;
-    secYesBtn.hidden = false; secNoBtn.hidden = false;
-    secConfirmIndex = 0;
-    secQuestion.textContent = CONFIRM_PROMPTS[0];
-    secRespText.textContent = ''; secRespSr.textContent = '';
-    bootLog.innerHTML = '';
-    progressFill.style.width = '0%';
-    progressPct.textContent = '0%';
-    line1Text.textContent = ''; line1Sr.textContent = '';
-    line2Text.textContent = ''; line2Sr.textContent = '';
-    line2P.hidden = true;
-    continueBtn.hidden = true;
+    stopReactionCapture(true);
     replayBtn.hidden = true;
-    initBtn.classList.add('pulse');
-    initBtn.hidden = false;
-    glitchPulse();
-    showScene('idle');
   });
 
   document.addEventListener('keydown', function(e){
