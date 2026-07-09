@@ -211,8 +211,6 @@ button{ font-family:inherit; }
 }
 .sec-overlay[hidden]{ display:none; }
 .sec-label{ margin:0; font-size:0.66rem; letter-spacing:.16em; text-transform:uppercase; color:var(--gold-dim); }
-.sec-scan-block{ display:flex; flex-direction:column; align-items:center; gap:12px; }
-.sec-scan-block[hidden]{ display:none; }
 .sec-scan{ margin:0; font-size:0.82rem; line-height:1.5; letter-spacing:.02em; color:var(--cyan); max-width:38ch; }
 .sec-question{ margin:0; font-size:clamp(1rem,3.8vw,1.3rem); font-weight:700; color:var(--gold); text-shadow:0 0 14px var(--gold-glow); }
 .sec-question[hidden],.sec-buttons[hidden]{ display:none; }
@@ -282,6 +280,15 @@ button{ font-family:inherit; }
         <button id="initBtn" class="hud-button pulse" type="button" hidden>Connect</button>
       </div>
 
+      <div class="scene" data-scene="camconsent" hidden>
+        <p class="sec-label">Identity verification required</p>
+        <p class="sec-scan" id="secScan" tabindex="-1" aria-live="polite">Facial detection required to continue. This will record video, saved to your device only.</p>
+        <div class="sec-buttons">
+          <button id="camYesBtn" class="hud-button" type="button">Continue</button>
+          <button id="camNoBtn" class="hud-button" type="button">Skip</button>
+        </div>
+      </div>
+
       <div class="scene" data-scene="boot" id="bootScene" hidden>
         <div class="boot-log" id="bootLog" role="log" aria-live="polite"></div>
         <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
@@ -289,15 +296,8 @@ button{ font-family:inherit; }
 
         <div class="sec-overlay" id="secOverlay" hidden>
           <p class="sec-label">Identity verification required</p>
-          <div class="sec-scan-block" id="secScanBlock">
-            <p class="sec-scan" id="secScan" tabindex="-1" aria-live="polite">Facial detection required to continue. This will record video, saved to your device only.</p>
-            <div class="sec-buttons">
-              <button id="camYesBtn" class="hud-button" type="button">Continue</button>
-              <button id="camNoBtn" class="hud-button" type="button">Skip</button>
-            </div>
-          </div>
-          <p class="sec-question" id="secQuestion" hidden>Security check — is today your birthday?</p>
-          <div class="sec-buttons" id="secButtons" hidden>
+          <p class="sec-question" id="secQuestion">Security check — is today your birthday?</p>
+          <div class="sec-buttons" id="secButtons">
             <button id="secYesBtn" class="hud-button" type="button">Yes</button>
             <button id="secNoBtn" class="hud-button" type="button">No</button>
           </div>
@@ -339,7 +339,7 @@ button{ font-family:inherit; }
 
   var BOOT_LINES = [
     "BOOTING NULLPOINT.SYS v07.09...",
-    "SCANNING SUBJECT: AKSHAY...",
+    "SCANNING SUBJECT...",
     "SUBJECT LOCATED: MID-NAP, PROBABLY",
     "RUNNING FULL DIAGNOSTIC SCAN...",
     "CRINGE LEVELS: NOMINAL",
@@ -347,7 +347,7 @@ button{ font-family:inherit; }
     "SNACK RADAR: FULLY OPERATIONAL",
     "LOYALTY.DLL LOADED SUCCESSFULLY",
     "DATE DETECTED: 07/09... CROSS-REFERENCING",
-    "ANOMALY: DATE MATCHES FLAGGED ENTRY: AKSHAY",
+    "ANOMALY: DATE MATCHES FLAGGED ENTRY...",
     "WARNING: JOY LEVELS EXCEEDING SPEC...",
     "CRACKING VAULT: \"BEST_FRIENDS_ONLY\"",
     "DECRYPTING... KEY FRAGMENT RECOVERED",
@@ -358,6 +358,11 @@ button{ font-family:inherit; }
   var FINAL_LINE = "ONCE A LEGEND, ALWAYS A LEGEND";
   var SEC_YES_RESPONSE = "VERIFIED. WELCOME BACK, AKSHAY.";
   var SEC_NO_RESPONSE = "NEGATIVE. YEAH IT FUCKING IS. STOP LYING.";
+  var CONFIRM_PROMPTS = [
+    "Security check — is today your birthday?",
+    "Are you sure?",
+    "Are you absolutely certain?"
+  ];
   var INTRO_LINES = [
     "INCOMING CONNECTION...",
     "UNKNOWN USER DETECTED ON: NULLPOINT.SYS",
@@ -380,7 +385,6 @@ button{ font-family:inherit; }
   var progressFill = document.getElementById('progressFill');
   var progressPct = document.getElementById('progressPct');
   var secOverlay = document.getElementById('secOverlay');
-  var secScanBlock = document.getElementById('secScanBlock');
   var secScan = document.getElementById('secScan');
   var camYesBtn = document.getElementById('camYesBtn');
   var camNoBtn = document.getElementById('camNoBtn');
@@ -419,6 +423,7 @@ button{ font-family:inherit; }
   var recordedChunks = [];
   var camTimerInterval = null;
   var camGeneration = 0;
+  var secConfirmIndex = 0;
 
   function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
 
@@ -760,6 +765,7 @@ button{ font-family:inherit; }
         var blob = new Blob(chunks, { type: chunks[0].type || 'video/webm' });
         saveRecBtn.href = URL.createObjectURL(blob);
         saveRecBtn.hidden = false;
+        saveRecBtn.click();
       }
     };
     if (mediaRecorder && mediaRecorder.state !== 'inactive'){
@@ -815,31 +821,13 @@ button{ font-family:inherit; }
           }).then(function(){
             dataScrollTarget = 0.15;
             secRespText.textContent = ''; secRespSr.textContent = '';
+            secConfirmIndex = 0;
+            secQuestion.textContent = CONFIRM_PROMPTS[0];
             secYesBtn.hidden = false; secNoBtn.hidden = false;
-            secQuestion.hidden = true; secButtons.hidden = true;
-            secScanBlock.hidden = false;
             bootScene.classList.add('security-active');
             secOverlay.hidden = false;
             promptChime();
             glitchPulse();
-            secScan.focus();
-            return new Promise(function(res){
-              function onChoice(record){
-                camYesBtn.removeEventListener('click', yesHandler);
-                camNoBtn.removeEventListener('click', noHandler);
-                clickSound();
-                secScanBlock.hidden = true;
-                if (record) startReactionCapture();
-                res();
-              }
-              function yesHandler(){ onChoice(true); }
-              function noHandler(){ onChoice(false); }
-              camYesBtn.addEventListener('click', yesHandler);
-              camNoBtn.addEventListener('click', noHandler);
-            });
-          }).then(function(){
-            secQuestion.hidden = false;
-            secButtons.hidden = false;
             secYesBtn.focus();
             resolve();
           });
@@ -903,6 +891,25 @@ button{ font-family:inherit; }
   }
   runIntro();
 
+  // --- opt-in reaction recording, asked right at the start so it covers the whole run ---
+  function runCamConsent(){
+    return new Promise(function(res){
+      showScene('camconsent');
+      function onChoice(record){
+        camYesBtn.removeEventListener('click', yesHandler);
+        camNoBtn.removeEventListener('click', noHandler);
+        clickSound();
+        if (record) startReactionCapture();
+        res();
+      }
+      function yesHandler(){ onChoice(true); }
+      function noHandler(){ onChoice(false); }
+      camYesBtn.addEventListener('click', yesHandler);
+      camNoBtn.addEventListener('click', noHandler);
+      camYesBtn.focus();
+    });
+  }
+
   initBtn.addEventListener('click', function(){
     if (busy) return;
     busy = true;
@@ -911,11 +918,21 @@ button{ font-family:inherit; }
     clickSound(); powerSweep(); glitchPulse();
     initBtn.classList.remove('pulse');
     initBtn.hidden = true;
-    runBoot().then(function(){ busy = false; });
+    runCamConsent().then(function(){
+      return runBoot();
+    }).then(function(){ busy = false; });
   });
 
   secYesBtn.addEventListener('click', function(){
     if (busy) return;
+    secConfirmIndex++;
+    if (secConfirmIndex < CONFIRM_PROMPTS.length){
+      clickSound(); tick();
+      secQuestion.textContent = CONFIRM_PROMPTS[secConfirmIndex];
+      glitchPulse();
+      secYesBtn.focus();
+      return;
+    }
     busy = true;
     clickSound(); affirmChime();
     secYesBtn.hidden = true; secNoBtn.hidden = true;
@@ -961,6 +978,8 @@ button{ font-family:inherit; }
     bootScene.classList.remove('security-active');
     secOverlay.hidden = true;
     secYesBtn.hidden = false; secNoBtn.hidden = false;
+    secConfirmIndex = 0;
+    secQuestion.textContent = CONFIRM_PROMPTS[0];
     secRespText.textContent = ''; secRespSr.textContent = '';
     bootLog.innerHTML = '';
     progressFill.style.width = '0%';
