@@ -1,0 +1,989 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#050402">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23050402'/%3E%3Crect x='8' y='8' width='16' height='16' fill='%23f5e400'/%3E%3C/svg%3E">
+<title>NULLPOINT.SYS // TERMINAL</title>
+<style>
+:root{
+  --bg:#050402;
+  --panel:#0a0800;
+  --gold:#f5e400;
+  --gold-dim:#7a7000;
+  --gold-glow:rgba(245,228,0,0.55);
+  --cyan:#24f0ff;
+  --red:#ff2d55;
+  --text:#eae6d2;
+  --text-dim:#8f8a6f;
+  --mono:'JetBrains Mono','Fira Code',ui-monospace,'SFMono-Regular','Cascadia Code','Roboto Mono','Courier New',monospace;
+  --cut:28px;
+}
+@media (max-width:480px){ :root{ --cut:16px; } }
+
+*,*::before,*::after{ box-sizing:border-box; }
+html,body{ height:100%; }
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--mono);
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+button{ font-family:inherit; }
+
+#app{
+  position:relative;
+  width:100vw; height:100vh;
+  display:flex; align-items:center; justify-content:center;
+  isolation:isolate;
+}
+#bgCanvas{ position:fixed; inset:0; z-index:0; display:block; }
+.crt-vignette{
+  position:fixed; inset:0; z-index:5; pointer-events:none;
+  background:radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(0,0,0,0.65) 100%);
+}
+.scanlines{
+  position:fixed; inset:0; z-index:6; pointer-events:none;
+  background:repeating-linear-gradient(to bottom, rgba(255,255,255,0.035) 0px, rgba(255,255,255,0.035) 1px, transparent 2px, transparent 3px);
+  mix-blend-mode:overlay;
+  opacity:0.5;
+}
+
+.mute-btn{
+  position:fixed; top:18px; right:18px; z-index:20;
+  width:42px; height:42px;
+  background:rgba(10,8,0,0.6);
+  border:1px solid var(--gold-dim);
+  color:var(--gold);
+  font-size:1.05rem;
+  cursor:pointer;
+  clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);
+  transition:border-color .2s, transform .15s;
+}
+.mute-btn:hover{ border-color:var(--gold); transform:translateY(-1px); }
+.mute-btn:focus-visible{ outline:2px solid var(--cyan); outline-offset:2px; }
+
+.cam-preview{
+  position:fixed; top:18px; left:18px; z-index:20;
+  width:112px; height:84px;
+  border:1px solid var(--gold-dim);
+  background:#000;
+  overflow:hidden;
+}
+.cam-preview[hidden]{ display:none; }
+.cam-preview video{ width:100%; height:100%; object-fit:cover; display:block; transform:scaleX(-1); }
+.cam-rec{
+  position:absolute; left:4px; bottom:4px;
+  display:flex; align-items:center; gap:4px;
+  font-size:0.58rem; letter-spacing:.05em; color:#fff;
+  background:rgba(0,0,0,0.55); padding:1px 5px;
+}
+.cam-dot{ width:6px; height:6px; border-radius:50%; background:var(--red); animation:blinkDot 1s steps(1) infinite; }
+
+.hud-frame{
+  position:relative; z-index:10;
+  width:min(640px,94vw);
+  padding:2px;
+  display:flex;
+  background:linear-gradient(150deg, var(--gold), var(--gold-dim) 60%, var(--gold) 100%);
+  clip-path:polygon(var(--cut) 0,100% 0,100% calc(100% - var(--cut)),calc(100% - var(--cut)) 100%,0 100%,0 var(--cut));
+  filter:drop-shadow(0 0 26px rgba(245,228,0,0.18));
+  animation:frameMaterialize 900ms cubic-bezier(.16,.9,.35,1) both;
+}
+.hud-frame::before,.hud-frame::after{
+  content:''; position:absolute; width:16px; height:2px; background:var(--cyan);
+  box-shadow:0 0 6px var(--cyan);
+}
+.hud-frame::before{ top:9px; left:-3px; transform:rotate(45deg); transform-origin:left center; }
+.hud-frame::after{ bottom:9px; right:-3px; transform:rotate(45deg); transform-origin:right center; }
+@keyframes frameMaterialize{
+  0%{ opacity:0; transform:scale(.92); }
+  100%{ opacity:1; transform:scale(1); }
+}
+.hud-frame__inner{
+  flex:1; width:100%;
+  background:var(--panel);
+  clip-path:polygon(calc(var(--cut) - 6.83px) 0,100% 0,100% calc(100% - (var(--cut) - 6.83px)),calc(100% - (var(--cut) - 6.83px)) 100%,0 100%,0 calc(var(--cut) - 6.83px));
+  padding:clamp(18px,4vw,32px);
+  min-height:420px;
+  display:flex; flex-direction:column;
+}
+
+.status-bar{
+  display:flex; justify-content:space-between; align-items:center; gap:12px;
+  font-size:0.66rem; letter-spacing:0.12em; text-transform:uppercase;
+  color:var(--gold-dim);
+  padding-bottom:10px; margin-bottom:18px;
+  border-bottom:1px solid rgba(245,228,0,0.15);
+}
+.status-bar .dot{ display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--red); margin-right:6px; animation:blinkDot 1.4s steps(1) infinite; vertical-align:middle; }
+@keyframes blinkDot{ 50%{ opacity:0.15; } }
+
+.scene{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px; text-align:center; }
+.scene[hidden]{ display:none; }
+
+.glitch-title{
+  position:relative;
+  font-size:clamp(1.8rem,7vw,3rem);
+  font-weight:700; letter-spacing:0.06em;
+  color:var(--gold);
+  text-shadow:0 0 18px var(--gold-glow);
+  margin:0;
+}
+.glitch-title::before,.glitch-title::after{ content:attr(data-text); position:absolute; inset:0; }
+.glitch-title::before{ color:var(--cyan); clip-path:inset(0 0 55% 0); transform:translate(-2px,-1px); animation:glitchShift 3.6s infinite linear; }
+.glitch-title::after{ color:var(--red); clip-path:inset(55% 0 0 0); transform:translate(2px,1px); animation:glitchShift 2.9s infinite linear reverse; }
+@keyframes glitchShift{
+  0%,88%,100%{ clip-path:inset(0 0 55% 0); transform:translate(-2px,-1px); }
+  90%{ clip-path:inset(10% 0 40% 0); transform:translate(2px,1px); }
+  92%{ clip-path:inset(60% 0 6% 0); transform:translate(-3px,1px); }
+  94%{ clip-path:inset(0 0 55% 0); transform:translate(1px,-2px); }
+}
+.idle-sub{ font-size:0.8rem; letter-spacing:0.18em; color:var(--text-dim); text-transform:uppercase; margin:0; }
+.idle-sub .blink{ animation:blinkDot 1.1s steps(1) infinite; }
+.intro-log{ width:100%; text-align:left; font-size:clamp(0.76rem,2.5vw,0.92rem); line-height:1.9; min-height:1.9em; }
+.intro-log:empty{ display:none; }
+
+.hud-button{
+  display:inline-block;
+  background:transparent;
+  border:1px solid var(--gold);
+  color:var(--gold);
+  font-family:var(--mono);
+  font-size:0.85rem; letter-spacing:0.14em; text-transform:uppercase;
+  padding:12px 26px;
+  cursor:pointer;
+  min-height:44px;
+  text-decoration:none;
+  clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);
+  transition:background .2s, color .2s, box-shadow .2s, transform .12s;
+}
+.hud-button:hover{ background:var(--gold); color:#0a0800; box-shadow:0 0 22px var(--gold-glow); }
+.hud-button:active{ transform:translateY(1px); }
+.hud-button:focus-visible{ outline:2px solid var(--cyan); outline-offset:3px; }
+.hud-button.pulse{ animation:btnPulse 1.6s ease-in-out infinite; }
+.hud-button[hidden]{ display:none; }
+@keyframes btnPulse{ 0%,100%{ box-shadow:0 0 0 rgba(245,228,0,0); } 50%{ box-shadow:0 0 18px var(--gold-glow); } }
+
+#bootScene{ position:relative; }
+.boot-log{
+  width:100%; max-height:min(46vh,320px); overflow-y:auto;
+  text-align:left;
+  font-size:clamp(0.72rem,2.4vw,0.86rem);
+  line-height:1.7;
+  padding-right:6px;
+  transition:opacity .3s ease, filter .3s ease;
+}
+.boot-log::-webkit-scrollbar{ width:4px; }
+.boot-log::-webkit-scrollbar-thumb{ background:var(--gold-dim); }
+.boot-line{ color:var(--text-dim); opacity:0; transform:translateX(-8px); transition:opacity .25s ease, transform .25s ease; }
+.boot-line.in{ opacity:1; transform:none; color:var(--text); }
+.boot-line::before{ content:'> '; color:var(--gold); }
+.boot-line.flicker{ animation:lineFlicker 180ms steps(2); }
+@keyframes lineFlicker{ 0%,100%{ opacity:1; } 50%{ opacity:.2; color:var(--cyan); } }
+
+.progress-track{
+  width:100%; height:6px; margin-top:18px;
+  background:rgba(245,228,0,0.1);
+  clip-path:polygon(4px 0,100% 0,100% calc(100% - 4px),calc(100% - 4px) 100%,0 100%,0 4px);
+  transition:opacity .3s ease, filter .3s ease;
+}
+.progress-fill{
+  height:100%; width:0%;
+  background:linear-gradient(90deg,var(--gold-dim),var(--gold));
+  box-shadow:0 0 10px var(--gold-glow);
+}
+.progress-pct{ align-self:flex-end; font-size:0.72rem; color:var(--gold-dim); margin-top:6px; letter-spacing:0.1em; transition:opacity .3s ease, filter .3s ease; }
+
+#bootScene.security-active .boot-log,
+#bootScene.security-active .progress-track,
+#bootScene.security-active .progress-pct{ opacity:.28; filter:grayscale(1) blur(1px); }
+
+.sec-overlay{
+  position:absolute; inset:0; z-index:2;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+  text-align:center;
+  background:rgba(5,4,2,0.82);
+  padding:20px;
+}
+.sec-overlay[hidden]{ display:none; }
+.sec-label{ margin:0; font-size:0.66rem; letter-spacing:.16em; text-transform:uppercase; color:var(--gold-dim); }
+.sec-scan-block{ display:flex; flex-direction:column; align-items:center; gap:12px; }
+.sec-scan-block[hidden]{ display:none; }
+.sec-scan{ margin:0; font-size:0.82rem; line-height:1.5; letter-spacing:.02em; color:var(--cyan); max-width:38ch; }
+.sec-question{ margin:0; font-size:clamp(1rem,3.8vw,1.3rem); font-weight:700; color:var(--gold); text-shadow:0 0 14px var(--gold-glow); }
+.sec-question[hidden],.sec-buttons[hidden]{ display:none; }
+.sec-buttons{ display:flex; gap:16px; }
+.sec-response{ min-height:1.4em; margin:0; font-size:0.92rem; letter-spacing:.03em; color:var(--cyan); text-shadow:0 0 12px rgba(36,240,255,0.4); }
+.sec-response:focus{ outline:none; }
+.sec-scan:focus{ outline:none; }
+
+.terminal-window{ width:100%; text-align:left; }
+.terminal-titlebar{
+  display:flex; align-items:center; gap:8px;
+  font-size:0.68rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--text-dim);
+  padding-bottom:10px; margin-bottom:20px;
+  border-bottom:1px solid rgba(245,228,0,0.15);
+}
+.terminal-titlebar .tdot{ width:8px; height:8px; border-radius:50%; }
+.terminal-titlebar .tdot:nth-child(1){ background:var(--red); }
+.terminal-titlebar .tdot:nth-child(2){ background:var(--gold); }
+.terminal-titlebar .tdot:nth-child(3){ background:var(--cyan); }
+.terminal-body{ min-height:180px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:26px; text-align:center; }
+.terminal-line{ margin:0; font-weight:700; font-size:clamp(1.3rem,5.4vw,2.2rem); letter-spacing:0.04em; color:var(--gold); text-shadow:0 0 20px var(--gold-glow); min-height:1.3em; }
+.terminal-line[hidden]{ display:none; }
+.terminal-line.line2{ color:var(--cyan); text-shadow:0 0 20px rgba(36,240,255,0.5); }
+.terminal-line .cursor{ display:inline-block; margin-left:2px; animation:blinkDot 0.9s steps(1) infinite; }
+
+.sr-only{ position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+
+.glitching{ animation:screenGlitch 260ms steps(2,end); }
+@keyframes screenGlitch{
+  0%{ filter:none; }
+  20%{ filter:hue-rotate(20deg) brightness(1.4); transform:translateX(2px); }
+  40%{ filter:hue-rotate(-15deg) brightness(0.8); transform:translateX(-3px); }
+  60%{ filter:none; transform:translateX(1px); }
+  100%{ filter:none; transform:none; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  *{ animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important; }
+  .glitch-title::before,.glitch-title::after{ display:none; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="bgCanvas" aria-hidden="true"></canvas>
+  <div class="crt-vignette" aria-hidden="true"></div>
+  <div class="scanlines" aria-hidden="true"></div>
+
+  <button id="muteBtn" class="mute-btn" type="button" aria-label="Mute sound" aria-pressed="false">🔊</button>
+
+  <div class="cam-preview" id="camPreview" hidden aria-hidden="true">
+    <video id="camVideo" autoplay muted playsinline></video>
+    <span class="cam-rec"><span class="cam-dot"></span>REC <span id="camTimer">0:00</span></span>
+  </div>
+
+  <div class="hud-frame">
+    <div class="hud-frame__inner">
+      <div class="status-bar">
+        <span><span class="dot" aria-hidden="true"></span>NULLPOINT.SYS</span>
+        <span id="statusRight">CHANNEL STATUS: UNVERIFIED</span>
+      </div>
+
+      <div class="scene" data-scene="idle">
+        <div class="intro-log" id="introLog" role="log" aria-live="polite"></div>
+        <h1 class="glitch-title" data-text="NULLPOINT.SYS" id="idleTitle" hidden>NULLPOINT.SYS</h1>
+        <p class="idle-sub" id="idleSub" hidden>Secure terminal — click to connect <span class="blink">_</span></p>
+        <button id="initBtn" class="hud-button pulse" type="button" hidden>Connect</button>
+      </div>
+
+      <div class="scene" data-scene="boot" id="bootScene" hidden>
+        <div class="boot-log" id="bootLog" role="log" aria-live="polite"></div>
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-pct" id="progressPct">0%</div>
+
+        <div class="sec-overlay" id="secOverlay" hidden>
+          <p class="sec-label">Identity verification required</p>
+          <div class="sec-scan-block" id="secScanBlock">
+            <p class="sec-scan" id="secScan" tabindex="-1" aria-live="polite">Facial detection required to continue. This will record video, saved to your device only.</p>
+            <div class="sec-buttons">
+              <button id="camYesBtn" class="hud-button" type="button">Continue</button>
+              <button id="camNoBtn" class="hud-button" type="button">Skip</button>
+            </div>
+          </div>
+          <p class="sec-question" id="secQuestion" hidden>Security check — is today your birthday?</p>
+          <div class="sec-buttons" id="secButtons" hidden>
+            <button id="secYesBtn" class="hud-button" type="button">Yes</button>
+            <button id="secNoBtn" class="hud-button" type="button">No</button>
+          </div>
+          <p class="sec-response" id="secResponseP" tabindex="-1">
+            <span class="line-text" id="secRespText" aria-hidden="true"></span>
+            <span class="sr-only" id="secRespSr" aria-live="polite"></span>
+          </p>
+        </div>
+      </div>
+
+      <div class="scene" data-scene="terminal" hidden>
+        <div class="terminal-window">
+          <div class="terminal-titlebar">
+            <span class="tdot" aria-hidden="true"></span><span class="tdot" aria-hidden="true"></span><span class="tdot" aria-hidden="true"></span>
+            <span>NULLPOINT.SYS — TERMINAL</span>
+          </div>
+          <div class="terminal-body">
+            <p class="terminal-line" id="line1P">
+              <span class="line-text" id="line1Text" aria-hidden="true"></span><span class="cursor" aria-hidden="true">▌</span>
+              <span class="sr-only" id="line1Sr" aria-live="polite"></span>
+            </p>
+            <p class="terminal-line line2" id="line2P" hidden>
+              <span class="line-text" id="line2Text" aria-hidden="true"></span><span class="cursor" aria-hidden="true">▌</span>
+              <span class="sr-only" id="line2Sr" aria-live="polite"></span>
+            </p>
+            <button id="continueBtn" class="hud-button" type="button" hidden>Continue</button>
+            <a id="saveRecBtn" class="hud-button" hidden download="reaction.webm">Save Reaction</a>
+            <button id="replayBtn" class="hud-button" type="button" hidden>Run Again</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var BOOT_LINES = [
+    "BOOTING NULLPOINT.SYS v07.09...",
+    "SCANNING SUBJECT: AKSHAY...",
+    "SUBJECT LOCATED: MID-NAP, PROBABLY",
+    "RUNNING FULL DIAGNOSTIC SCAN...",
+    "CRINGE LEVELS: NOMINAL",
+    "CHARISMA MODULE: OVERCLOCKED",
+    "SNACK RADAR: FULLY OPERATIONAL",
+    "LOYALTY.DLL LOADED SUCCESSFULLY",
+    "DATE DETECTED: 07/09... CROSS-REFERENCING",
+    "ANOMALY: DATE MATCHES FLAGGED ENTRY: AKSHAY",
+    "WARNING: JOY LEVELS EXCEEDING SPEC...",
+    "CRACKING VAULT: \"BEST_FRIENDS_ONLY\"",
+    "DECRYPTING... KEY FRAGMENT RECOVERED",
+    "AUX PAYLOAD STAGING IN PROGRESS...",
+    "IDENTITY VERIFICATION REQUIRED..."
+  ];
+  var FIRST_LINE = "HAPPY BIRTHDAY AKSHAY";
+  var FINAL_LINE = "ONCE A LEGEND, ALWAYS A LEGEND";
+  var SEC_YES_RESPONSE = "VERIFIED. WELCOME BACK, AKSHAY.";
+  var SEC_NO_RESPONSE = "NEGATIVE. YEAH IT FUCKING IS. STOP LYING.";
+  var INTRO_LINES = [
+    "INCOMING CONNECTION...",
+    "UNKNOWN USER DETECTED ON: NULLPOINT.SYS",
+    "RUNNING TRACE...",
+    "TRACE FAILED. IDENTITY UNCONFIRMED.",
+    "THIS SYSTEM DOES NOT RECOGNIZE YOU YET."
+  ];
+
+  var app = document.getElementById('app');
+  var bgCanvas = document.getElementById('bgCanvas');
+  var cctx = bgCanvas.getContext('2d');
+  var muteBtn = document.getElementById('muteBtn');
+  var statusRight = document.getElementById('statusRight');
+  var introLog = document.getElementById('introLog');
+  var idleTitle = document.getElementById('idleTitle');
+  var idleSub = document.getElementById('idleSub');
+  var initBtn = document.getElementById('initBtn');
+  var bootScene = document.getElementById('bootScene');
+  var bootLog = document.getElementById('bootLog');
+  var progressFill = document.getElementById('progressFill');
+  var progressPct = document.getElementById('progressPct');
+  var secOverlay = document.getElementById('secOverlay');
+  var secScanBlock = document.getElementById('secScanBlock');
+  var secScan = document.getElementById('secScan');
+  var camYesBtn = document.getElementById('camYesBtn');
+  var camNoBtn = document.getElementById('camNoBtn');
+  var secQuestion = document.getElementById('secQuestion');
+  var secButtons = document.getElementById('secButtons');
+  var secYesBtn = document.getElementById('secYesBtn');
+  var secNoBtn = document.getElementById('secNoBtn');
+  var secRespText = document.getElementById('secRespText');
+  var secRespSr = document.getElementById('secRespSr');
+  var secResponseP = document.getElementById('secResponseP');
+  var line1P = document.getElementById('line1P');
+  var line1Text = document.getElementById('line1Text');
+  var line1Sr = document.getElementById('line1Sr');
+  var line2P = document.getElementById('line2P');
+  var line2Text = document.getElementById('line2Text');
+  var line2Sr = document.getElementById('line2Sr');
+  var continueBtn = document.getElementById('continueBtn');
+  var saveRecBtn = document.getElementById('saveRecBtn');
+  var replayBtn = document.getElementById('replayBtn');
+  var camPreview = document.getElementById('camPreview');
+  var camVideo = document.getElementById('camVideo');
+  var camTimerEl = document.getElementById('camTimer');
+
+  var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var particles = [];
+  var gridOffset = 0;
+  var muted = false;
+  var actx = null, master = null;
+  var busy = false;
+  var drone = null;
+  var dataScrollTarget = 0;
+  var dataScrollIntensity = 0;
+  var hexCols = [];
+  var camStream = null;
+  var mediaRecorder = null;
+  var recordedChunks = [];
+  var camTimerInterval = null;
+  var camGeneration = 0;
+
+  function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+
+  function showScene(name){
+    var scenes = document.querySelectorAll('.scene');
+    for (var i=0;i<scenes.length;i++){ scenes[i].hidden = scenes[i].dataset.scene !== name; }
+  }
+
+  function glitchPulse(){
+    app.classList.remove('glitching');
+    void app.offsetWidth;
+    app.classList.add('glitching');
+    if (!reducedMotion) noiseBurst({ dur:0.12, gain:0.1 });
+  }
+
+  // --- audio engine (synthesized, no external files) ---
+  function initAudio(){
+    if (actx) return;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    actx = new AC();
+    master = actx.createGain();
+    master.gain.value = muted ? 0 : 0.35;
+    master.connect(actx.destination);
+  }
+  function tone(opts){
+    if (!actx) return;
+    var freq = opts.freq || 440, dur = opts.dur || 0.08, type = opts.type || 'square';
+    var gain = opts.gain || 0.15, glideTo = opts.glideTo || null, delay = opts.delay || 0;
+    var t0 = actx.currentTime + delay;
+    var osc = actx.createOscillator();
+    var g = actx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t0);
+    if (glideTo) osc.frequency.exponentialRampToValueAtTime(glideTo, t0 + dur);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gain, t0 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(g); g.connect(master);
+    osc.start(t0); osc.stop(t0 + dur + 0.03);
+  }
+  function noiseBurst(opts){
+    if (!actx) return;
+    var dur = opts.dur || 0.15, gain = opts.gain || 0.12, delay = opts.delay || 0;
+    var t0 = actx.currentTime + delay;
+    var size = Math.max(1, Math.floor(actx.sampleRate * dur));
+    var buffer = actx.createBuffer(1, size, actx.sampleRate);
+    var data = buffer.getChannelData(0);
+    for (var i=0;i<size;i++){ data[i] = (Math.random()*2-1) * (1 - i/size); }
+    var src = actx.createBufferSource();
+    src.buffer = buffer;
+    var filt = actx.createBiquadFilter();
+    filt.type = 'bandpass'; filt.frequency.value = 1800; filt.Q.value = 0.7;
+    var g = actx.createGain(); g.gain.value = gain;
+    src.connect(filt); filt.connect(g); g.connect(master);
+    src.start(t0);
+  }
+  function tick(){ tone({ freq: 1200 + Math.random()*400, dur:0.02, type:'square', gain:0.05 }); }
+  function bootBlip(){ tone({ freq: 380, dur:0.045, type:'square', gain:0.09 }); }
+  function clickSound(){ tone({ freq:520, dur:0.05, type:'square', gain:0.12 }); tone({ freq:260, dur:0.05, type:'square', gain:0.08, delay:0.03 }); }
+  function powerSweep(){ tone({ freq:80, glideTo:640, dur:0.5, type:'sawtooth', gain:0.10 }); }
+  function successChord(){
+    [261.6,329.6,392.0,523.3].forEach(function(f,i){ tone({ freq:f, dur:0.9, type:'triangle', gain:0.09, delay:i*0.05 }); });
+  }
+  function successChord2(){
+    [329.6,392.0,523.3,659.3].forEach(function(f,i){ tone({ freq:f, dur:0.9, type:'triangle', gain:0.09, delay:i*0.05 }); });
+  }
+  function promptChime(){
+    tone({ freq:740, dur:0.09, type:'square', gain:0.11 });
+    tone({ freq:740, dur:0.09, type:'square', gain:0.11, delay:0.16 });
+  }
+  function affirmChime(){
+    tone({ freq:660, dur:0.14, type:'sine', gain:0.12 });
+    tone({ freq:880, dur:0.22, type:'sine', gain:0.12, delay:0.12 });
+  }
+  function buzzer(){
+    tone({ freq:180, dur:0.28, type:'sawtooth', gain:0.16, glideTo:90 });
+    tone({ freq:170, dur:0.28, type:'square', gain:0.10, delay:0.02, glideTo:85 });
+  }
+  function stallDip(){ tone({ freq:260, dur:0.35, type:'sine', gain:0.08, glideTo:140 }); }
+  function riser(durSec){
+    if (!actx) return;
+    var t0 = actx.currentTime;
+    var osc = actx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(120, t0);
+    osc.frequency.exponentialRampToValueAtTime(1400, t0 + durSec);
+    var g = actx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.14, t0 + durSec*0.9);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + durSec + 0.05);
+    osc.connect(g); g.connect(master);
+    osc.start(t0); osc.stop(t0 + durSec + 0.1);
+    noiseBurst({ dur:durSec, gain:0.06 });
+  }
+
+  // ominous background drone — two detuned oscillators through a lowpass filter,
+  // intensity (0..1) widens detune/opens the filter/raises an LFO-driven gain pulse
+  function droneStart(){
+    if (!actx || drone) return;
+    var o1 = actx.createOscillator(), o2 = actx.createOscillator();
+    o1.type = 'sawtooth'; o2.type = 'sawtooth';
+    o1.frequency.value = 58; o2.frequency.value = 58;
+    var filt = actx.createBiquadFilter();
+    filt.type = 'lowpass'; filt.frequency.value = 300;
+    var g = actx.createGain(); g.gain.value = 0.0001;
+    var lfo = actx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 1.2;
+    var lfoGain = actx.createGain(); lfoGain.gain.value = 0.015;
+    lfo.connect(lfoGain); lfoGain.connect(g.gain);
+    o1.connect(filt); o2.connect(filt); filt.connect(g); g.connect(master);
+    o1.start(); o2.start(); lfo.start();
+    drone = { o1:o1, o2:o2, filt:filt, g:g, lfo:lfo, lfoGain:lfoGain };
+    g.gain.linearRampToValueAtTime(0.04, actx.currentTime + 1.4);
+  }
+  function droneSetIntensity(t){
+    if (!drone || !actx) return;
+    var now = actx.currentTime;
+    drone.o2.detune.linearRampToValueAtTime(20*t, now + 0.3);
+    drone.filt.frequency.linearRampToValueAtTime(300 + 700*t, now + 0.3);
+    drone.lfo.frequency.linearRampToValueAtTime(1.2 + 1.8*t, now + 0.3);
+    drone.g.gain.linearRampToValueAtTime(0.04 + 0.05*t, now + 0.3);
+  }
+  function droneStop(fast){
+    if (!drone || !actx) return;
+    var now = actx.currentTime;
+    var dur = fast ? 0.15 : 0.6;
+    var d = drone;
+    d.g.gain.cancelScheduledValues(now);
+    d.g.gain.setValueAtTime(d.g.gain.value, now);
+    d.g.gain.linearRampToValueAtTime(0.0001, now + dur);
+    setTimeout(function(){ try { d.o1.stop(); d.o2.stop(); d.lfo.stop(); } catch(e){} }, (dur + 0.05) * 1000);
+    drone = null;
+  }
+
+  muteBtn.addEventListener('click', function(){
+    initAudio();
+    muted = !muted;
+    if (master) master.gain.value = muted ? 0 : 0.35;
+    muteBtn.textContent = muted ? '🔇' : '🔊';
+    muteBtn.setAttribute('aria-pressed', String(muted));
+    muteBtn.setAttribute('aria-label', muted ? 'Unmute sound' : 'Mute sound');
+  });
+
+  // --- background canvas: ambient perspective grid + confetti particles ---
+  function initHexCols(){
+    var colWidth = 22;
+    var count = Math.ceil(window.innerWidth / colWidth);
+    hexCols = [];
+    for (var i=0;i<count;i++){
+      hexCols.push({ x: i*colWidth, y: Math.random()*window.innerHeight, speed: 40 + Math.random()*40 });
+    }
+  }
+  function resizeCanvas(){
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    bgCanvas.width = window.innerWidth * dpr;
+    bgCanvas.height = window.innerHeight * dpr;
+    bgCanvas.style.width = window.innerWidth + 'px';
+    bgCanvas.style.height = window.innerHeight + 'px';
+    cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    initHexCols();
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  function randHex(){
+    var h = Math.floor(Math.random()*256).toString(16).toUpperCase();
+    return h.length < 2 ? '0'+h : h;
+  }
+  function renderDataScroll(intensity){
+    if (intensity <= 0.01) return;
+    cctx.save();
+    cctx.font = '13px "JetBrains Mono", monospace';
+    cctx.textBaseline = 'top';
+    for (var i=0;i<hexCols.length;i++){
+      var c = hexCols[i];
+      if (!reducedMotion) c.y += c.speed * intensity * 0.016;
+      if (c.y > window.innerHeight + 40) c.y = -40;
+      var gold = Math.random() < 0.04*intensity;
+      cctx.globalAlpha = (0.1 + 0.32*intensity) * (0.6 + Math.random()*0.4);
+      cctx.fillStyle = gold ? '#f5e400' : '#24f0ff';
+      cctx.fillText(randHex(), c.x, c.y);
+    }
+    cctx.restore();
+  }
+
+  function renderGrid(){
+    var w = window.innerWidth, h = window.innerHeight;
+    var horizon = h * 0.55;
+    cctx.save();
+    cctx.strokeStyle = 'rgba(245,228,0,0.06)';
+    cctx.lineWidth = 1;
+    for (var i=0;i<24;i++){
+      var t = (i + (gridOffset % 1)) / 24;
+      var y = horizon + Math.pow(t, 2.2) * (h - horizon);
+      cctx.globalAlpha = 0.4 * (1 - t) + 0.05;
+      cctx.beginPath(); cctx.moveTo(0, y); cctx.lineTo(w, y); cctx.stroke();
+    }
+    var vanishX = w / 2;
+    cctx.globalAlpha = 0.12;
+    for (var j=-10;j<=10;j++){
+      cctx.beginPath();
+      cctx.moveTo(vanishX + j*40, horizon);
+      cctx.lineTo(vanishX + j*220, h);
+      cctx.stroke();
+    }
+    cctx.restore();
+    if (!reducedMotion) gridOffset += 0.006;
+  }
+
+  function burstConfetti(){
+    if (reducedMotion) return;
+    var colors = ['#f5e400', '#24f0ff', '#eae6d2'];
+    for (var i=0;i<140;i++){
+      particles.push({
+        x: window.innerWidth/2 + (Math.random()-0.5) * 260,
+        y: window.innerHeight * 0.4,
+        vx: (Math.random()-0.5) * 6,
+        vy: Math.random() * -7 - 2,
+        g: 0.15 + Math.random() * 0.12,
+        size: 3 + Math.random() * 4,
+        color: colors[(Math.random()*colors.length) | 0],
+        rot: Math.random() * Math.PI,
+        vr: (Math.random()-0.5) * 0.3,
+        life: 0,
+        maxLife: 150 + Math.random() * 70
+      });
+    }
+  }
+
+  function loop(){
+    cctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    renderGrid();
+    dataScrollIntensity += (dataScrollTarget - dataScrollIntensity) * (reducedMotion ? 1 : 0.04);
+    renderDataScroll(dataScrollIntensity);
+    for (var i=particles.length-1;i>=0;i--){
+      var p = particles[i];
+      p.vy += p.g; p.x += p.vx; p.y += p.vy; p.rot += p.vr; p.life++;
+      cctx.save();
+      cctx.translate(p.x, p.y); cctx.rotate(p.rot);
+      cctx.globalAlpha = Math.max(0, 1 - p.life/p.maxLife);
+      cctx.fillStyle = p.color;
+      cctx.fillRect(-p.size/2, -p.size/2, p.size, p.size*0.6);
+      cctx.restore();
+      if (p.life >= p.maxLife || p.y > window.innerHeight + 60) particles.splice(i, 1);
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  // --- typewriter ---
+  function typeLine(textEl, srEl, text, tickEvery){
+    tickEvery = tickEvery || 2;
+    return new Promise(function(resolve){
+      textEl.textContent = '';
+      srEl.textContent = text;
+      var i = 0;
+      var speed = 46;
+      (function step(){
+        if (i < text.length){
+          textEl.textContent += text[i];
+          if (i % tickEvery === 0) tick();
+          i++;
+          setTimeout(step, speed + Math.random()*18);
+        } else {
+          resolve();
+        }
+      })();
+    });
+  }
+
+  // --- progress bar tween (used for both the boot climb and the recovery burst) ---
+  function animateProgressTo(target, durMs){
+    var start = parseFloat(progressFill.style.width) || 0;
+    if (durMs <= 0){
+      progressFill.style.width = target + '%';
+      progressPct.textContent = Math.round(target) + '%';
+      return Promise.resolve();
+    }
+    return new Promise(function(resolve){
+      var t0 = performance.now();
+      (function step(now){
+        var p = Math.min(1, (now - t0) / durMs);
+        var val = start + (target - start) * p;
+        progressFill.style.width = val + '%';
+        progressPct.textContent = Math.round(val) + '%';
+        if (p < 1) requestAnimationFrame(step); else resolve();
+      })(t0);
+    });
+  }
+
+  // --- reaction capture: local-only recording, requested in-character during the
+  // security check ("visual verification"). Never uploaded anywhere automatically —
+  // the viewer explicitly downloads it themselves via saveRecBtn if they want it. ---
+  function startReactionCapture(){
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) return;
+    var myGen = ++camGeneration;
+    navigator.mediaDevices.getUserMedia({ video: { width:320, height:240 }, audio:true }).then(function(stream){
+      if (myGen !== camGeneration){
+        // a stop (or a newer capture) happened while the permission prompt was pending — discard immediately
+        stream.getTracks().forEach(function(t){ t.stop(); });
+        return;
+      }
+      camStream = stream;
+      camVideo.srcObject = stream;
+      camPreview.hidden = false;
+      recordedChunks = [];
+      var mimeType = '';
+      var candidates = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+      for (var i=0;i<candidates.length;i++){
+        if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(candidates[i])){ mimeType = candidates[i]; break; }
+      }
+      try {
+        mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType: mimeType }) : new MediaRecorder(stream);
+      } catch (e){
+        stopReactionCapture(false);
+        return;
+      }
+      mediaRecorder.ondataavailable = function(e){ if (e.data && e.data.size > 0) recordedChunks.push(e.data); };
+      mediaRecorder.start();
+      var camStartTime = Date.now();
+      camTimerInterval = setInterval(function(){
+        var s = Math.floor((Date.now() - camStartTime) / 1000);
+        camTimerEl.textContent = Math.floor(s/60) + ':' + (s%60 < 10 ? '0' : '') + (s%60);
+      }, 500);
+    }).catch(function(){ /* denied, unavailable, or blocked — page continues without it */ });
+  }
+
+  function stopReactionCapture(offerDownload){
+    camGeneration++;
+    if (camTimerInterval){ clearInterval(camTimerInterval); camTimerInterval = null; }
+    if (saveRecBtn.href){ URL.revokeObjectURL(saveRecBtn.href); saveRecBtn.removeAttribute('href'); }
+    saveRecBtn.hidden = true;
+    var chunks = recordedChunks;
+    recordedChunks = [];
+    var finish = function(){
+      if (camStream){ camStream.getTracks().forEach(function(t){ t.stop(); }); camStream = null; }
+      camPreview.hidden = true;
+      if (offerDownload && chunks.length){
+        var blob = new Blob(chunks, { type: chunks[0].type || 'video/webm' });
+        saveRecBtn.href = URL.createObjectURL(blob);
+        saveRecBtn.hidden = false;
+      }
+    };
+    if (mediaRecorder && mediaRecorder.state !== 'inactive'){
+      var mr = mediaRecorder;
+      mediaRecorder = null;
+      mr.onstop = finish;
+      mr.stop();
+    } else {
+      mediaRecorder = null;
+      finish();
+    }
+  }
+
+  // --- boot sequence: escalating log lines, ambient drone + data-scroll ramping with it,
+  // ends in a stall/regression that hands off to the security-check overlay ---
+  function runBoot(){
+    return new Promise(function(resolve){
+      showScene('boot');
+      bootScene.classList.remove('security-active');
+      secOverlay.hidden = true;
+      bootLog.innerHTML = '';
+      progressFill.style.width = '0%';
+      progressPct.textContent = '0%';
+      dataScrollTarget = 0.22;
+      droneStart();
+      var n = BOOT_LINES.length;
+      var i = 0;
+      (function nextLine(){
+        if (i < n){
+          var el = document.createElement('div');
+          el.className = 'boot-line';
+          el.textContent = BOOT_LINES[i];
+          var t = i / (n - 1);
+          if (!reducedMotion && t > 0.55 && Math.random() < 0.35) el.classList.add('flicker');
+          bootLog.appendChild(el);
+          bootLog.scrollTop = bootLog.scrollHeight;
+          requestAnimationFrame(function(){ el.classList.add('in'); });
+          bootBlip();
+          droneSetIntensity(t);
+          if (t > 0.55) dataScrollTarget = 0.5;
+          var pct = ((i+1) / n) * 90;
+          var delay = Math.round(340 + (1700 - 340) * Math.pow(1 - t, 1.6));
+          animateProgressTo(pct, Math.min(delay - 20, 220));
+          i++;
+          setTimeout(nextLine, delay);
+        } else {
+          noiseBurst({ dur:0.15, gain:0.1 });
+          wait(400).then(function(){
+            stallDip();
+            return animateProgressTo(85, 180);
+          }).then(function(){
+            return wait(260);
+          }).then(function(){
+            dataScrollTarget = 0.15;
+            secRespText.textContent = ''; secRespSr.textContent = '';
+            secYesBtn.hidden = false; secNoBtn.hidden = false;
+            secQuestion.hidden = true; secButtons.hidden = true;
+            secScanBlock.hidden = false;
+            bootScene.classList.add('security-active');
+            secOverlay.hidden = false;
+            promptChime();
+            glitchPulse();
+            secScan.focus();
+            return new Promise(function(res){
+              function onChoice(record){
+                camYesBtn.removeEventListener('click', yesHandler);
+                camNoBtn.removeEventListener('click', noHandler);
+                clickSound();
+                secScanBlock.hidden = true;
+                if (record) startReactionCapture();
+                res();
+              }
+              function yesHandler(){ onChoice(true); }
+              function noHandler(){ onChoice(false); }
+              camYesBtn.addEventListener('click', yesHandler);
+              camNoBtn.addEventListener('click', noHandler);
+            });
+          }).then(function(){
+            secQuestion.hidden = false;
+            secButtons.hidden = false;
+            secYesBtn.focus();
+            resolve();
+          });
+        }
+      })();
+    });
+  }
+
+  // shared tail: recovery burst -> silent hold -> coil -> glitch-in -> terminal reveal
+  function revealPayoff(){
+    return wait(1300).then(function(){
+      bootScene.classList.remove('security-active');
+      secOverlay.hidden = true;
+      statusRight.textContent = 'BIRTHDAY.EXE — ROOT ACCESS GRANTED';
+      droneStop();
+      riser(0.9);
+      dataScrollTarget = 0.55;
+      return animateProgressTo(100, 700);
+    }).then(function(){
+      dataScrollTarget = 0;
+      return wait(450);
+    }).then(function(){
+      tick();
+      return wait(200);
+    }).then(function(){
+      glitchPulse();
+      noiseBurst({ dur:0.2, gain:0.14 });
+      return wait(320);
+    }).then(function(){
+      showScene('terminal');
+      return wait(200);
+    }).then(function(){
+      return typeLine(line1Text, line1Sr, FIRST_LINE, 2);
+    }).then(function(){
+      successChord();
+      continueBtn.hidden = false;
+      continueBtn.classList.add('pulse');
+      continueBtn.focus();
+      busy = false;
+    });
+  }
+
+  // --- cold open: silent auto-typed intro before any interaction is possible ---
+  function runIntro(){
+    var i = 0;
+    (function next(){
+      if (i < INTRO_LINES.length){
+        var el = document.createElement('div');
+        el.className = 'boot-line';
+        el.textContent = INTRO_LINES[i];
+        introLog.appendChild(el);
+        requestAnimationFrame(function(){ el.classList.add('in'); });
+        i++;
+        setTimeout(next, 780);
+      } else {
+        idleTitle.hidden = false;
+        idleSub.hidden = false;
+        initBtn.hidden = false;
+      }
+    })();
+  }
+  runIntro();
+
+  initBtn.addEventListener('click', function(){
+    if (busy) return;
+    busy = true;
+    initAudio();
+    if (actx && actx.state === 'suspended') actx.resume();
+    clickSound(); powerSweep(); glitchPulse();
+    initBtn.classList.remove('pulse');
+    initBtn.hidden = true;
+    runBoot().then(function(){ busy = false; });
+  });
+
+  secYesBtn.addEventListener('click', function(){
+    if (busy) return;
+    busy = true;
+    clickSound(); affirmChime();
+    secYesBtn.hidden = true; secNoBtn.hidden = true;
+    secResponseP.focus();
+    typeLine(secRespText, secRespSr, SEC_YES_RESPONSE, 2).then(revealPayoff);
+  });
+
+  secNoBtn.addEventListener('click', function(){
+    if (busy) return;
+    busy = true;
+    clickSound(); buzzer(); glitchPulse();
+    secYesBtn.hidden = true; secNoBtn.hidden = true;
+    secResponseP.focus();
+    typeLine(secRespText, secRespSr, SEC_NO_RESPONSE, 2).then(revealPayoff);
+  });
+
+  continueBtn.addEventListener('click', function(){
+    if (busy) return;
+    busy = true;
+    clickSound();
+    continueBtn.hidden = true;
+    line2P.hidden = false;
+    typeLine(line2Text, line2Sr, FINAL_LINE, 2).then(function(){
+      successChord2();
+      glitchPulse();
+      burstConfetti();
+      replayBtn.hidden = false;
+      replayBtn.focus();
+      busy = false;
+      setTimeout(function(){ stopReactionCapture(true); }, 3500);
+    });
+  });
+
+  replayBtn.addEventListener('click', function(){
+    if (busy) return;
+    clickSound();
+    stopReactionCapture(false);
+    droneStop(true);
+    dataScrollTarget = 0;
+    particles.length = 0;
+    introLog.innerHTML = '';
+    statusRight.textContent = 'CHANNEL STATUS: UNVERIFIED';
+    bootScene.classList.remove('security-active');
+    secOverlay.hidden = true;
+    secYesBtn.hidden = false; secNoBtn.hidden = false;
+    secRespText.textContent = ''; secRespSr.textContent = '';
+    bootLog.innerHTML = '';
+    progressFill.style.width = '0%';
+    progressPct.textContent = '0%';
+    line1Text.textContent = ''; line1Sr.textContent = '';
+    line2Text.textContent = ''; line2Sr.textContent = '';
+    line2P.hidden = true;
+    continueBtn.hidden = true;
+    replayBtn.hidden = true;
+    initBtn.classList.add('pulse');
+    initBtn.hidden = false;
+    glitchPulse();
+    showScene('idle');
+  });
+
+  document.addEventListener('keydown', function(e){
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    var active = document.activeElement;
+    if (active && active.tagName === 'BUTTON') return;
+    var target = [initBtn, continueBtn, replayBtn].find(function(b){ return b && !b.hidden; });
+    if (target){ e.preventDefault(); target.click(); }
+  });
+})();
+</script>
+</body>
+</html>
